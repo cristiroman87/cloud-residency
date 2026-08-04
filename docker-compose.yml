@@ -1,0 +1,32 @@
+version: "3.9"
+
+services:
+  app1:
+    build: .
+    image: flask-lab
+    command: ["python3", "app.py"]
+    environment:
+      APP2_URL: http://app2:5001
+      APP3_URL: http://app3:5002
+    ports:
+      - "5000:5000"
+    depends_on:
+      - app2
+      - app3
+
+  app2:
+    image: flask-lab
+    command: ["python3", "app2.py"]
+    volumes:
+      - ./logs:/app/logs
+
+  app3:
+    image: flask-lab
+    command: ["python3", "app3.py"]
+    ports:
+      - "5002:5002"
+    environment:
+      SECRET_KEY: dev-change-me-now
+      APP3_DB: /app/data/app3.db
+    volumes:
+      - ./data:/app/data
