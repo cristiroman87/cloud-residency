@@ -24,11 +24,13 @@ jobs:
 
       # Make sure Docker Compose is valid.
       - name: Validate Docker Compose
-        run: docker compose config
+        env:
+          APP_IMAGE: flask-lab:latest
+        	run: docker compose config
 
       # Build the application image.
       - name: Build Docker application
-        run: docker compose build
+        run: docker build -t flask-lab:latest .
 
       # Authenticate this GitHub workflow to AWS using OIDC.
       # No permanent AWS credentials are stored in GitHub.
@@ -55,3 +57,12 @@ jobs:
         run: |
           docker tag flask-lab:latest $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+      - name: Update production image version
+        if: github.event_name == 'push'
+        run: |
+          aws ssm put-parameter \
+      --name "/cloud-residency/app-image-tag" \
+      --type "String" \
+      --value "${{ github.sha }}" \
+      --overwrite \
+      --region eu-north-1
