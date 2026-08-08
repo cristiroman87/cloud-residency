@@ -18,22 +18,22 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # Download application source onto the GitHub runner.
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Make sure Docker Compose is valid.
+      # Compose now expects APP_IMAGE to be supplied externally.
+      # For validation we can use a temporary local image name.
       - name: Validate Docker Compose
         env:
           APP_IMAGE: flask-lab:latest
-        	run: docker compose config
+        run: docker compose config
 
-      # Build the application image.
+      # CI builds the application image directly.
       - name: Build Docker application
         run: docker build -t flask-lab:latest .
 
-      # Authenticate this GitHub workflow to AWS using OIDC.
-      # No permanent AWS credentials are stored in GitHub.
+      # Only pushes to main publish an image.
+      # Pull requests stop after validation/build.
       - name: Configure AWS credentials
         if: github.event_name == 'push'
         uses: aws-actions/configure-aws-credentials@v4
@@ -41,13 +41,11 @@ jobs:
           role-to-assume: arn:aws:iam::682047236370:role/cloud-residency-github-app
           aws-region: eu-north-1
 
-      # Authenticate Docker to our private ECR registry.
       - name: Login to Amazon ECR
         if: github.event_name == 'push'
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      # Tag the image using the Git commit SHA and push it to ECR.
       - name: Push image to ECR
         if: github.event_name == 'push'
         env:
@@ -57,12 +55,15 @@ jobs:
         run: |
           docker tag flask-lab:latest $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+
+      # Only move the production pointer AFTER the image
+      # was successfully pushed to ECR.
       - name: Update production image version
         if: github.event_name == 'push'
         run: |
           aws ssm put-parameter \
-      --name "/cloud-residency/app-image-tag" \
-      --type "String" \
-      --value "${{ github.sha }}" \
-      --overwrite \
-      --region eu-north-1
+            --name "/cloud-residency/app-image-tag" \
+            --type "String" \
+            --value "${{ github.sha }}" \
+            --overwrite \
+            --region eu-north-1
