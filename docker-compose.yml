@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   app1:
     build: .
@@ -14,11 +12,27 @@ services:
       - app2
       - app3
 
+    # Send app1 stdout/stderr directly from Docker to CloudWatch Logs
+    logging:
+      driver: awslogs
+      options:
+        awslogs-region: eu-north-1
+        awslogs-group: /cloud-residency/app
+        awslogs-stream: app1
+
   app2:
     image: flask-lab
     command: ["python3", "app2.py"]
     volumes:
       - ./logs:/app/logs
+
+    # Send app2 stdout/stderr to CloudWatch Logs
+    logging:
+      driver: awslogs
+      options:
+        awslogs-region: eu-north-1
+        awslogs-group: /cloud-residency/app
+        awslogs-stream: app2
 
   app3:
     image: flask-lab
@@ -30,3 +44,11 @@ services:
       APP3_DB: /app/data/app3.db
     volumes:
       - ./data:/app/data
+
+    # Send app3 stdout/stderr to CloudWatch Logs
+    logging:
+      driver: awslogs
+      options:
+        awslogs-region: eu-north-1
+        awslogs-group: /cloud-residency/app
+        awslogs-stream: app3
