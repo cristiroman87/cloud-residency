@@ -1,4 +1,4 @@
-n	ame: Application CI
+name: Application CI
 
 # Run automatically whenever application code is pushed to main.
 on:
