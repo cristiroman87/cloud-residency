@@ -18,7 +18,14 @@ jobs:
       # Download the application repository onto the temporary runner.
       - name: Checkout repository
         uses: actions/checkout@v4
-
+      
+      - name: Show repository identity
+        run: |
+          echo "Repository: ${{ github.repository }}"
+          echo "Repository ID: ${{ github.repository_id }}"
+          echo "Owner ID: ${{ github.repository_owner_id }}"
+          echo "Ref: ${{ github.ref }}"
+      
       # Build the application exactly as our EC2s currently do.
       - name: Build Docker application
         run: docker compose build
