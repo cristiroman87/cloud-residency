@@ -1,0 +1,28 @@
+n	ame: Application CI
+
+# Run automatically whenever application code is pushed to main.
+on:
+  push:
+    branches:
+      - main
+
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Download the application repository onto the temporary runner.
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Build the application exactly as our EC2s currently do.
+      - name: Build Docker application
+        run: docker compose build
+
+      # Validate the Docker Compose configuration.
+      - name: Validate Docker Compose
+        run: docker compose config
