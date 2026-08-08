@@ -1,6 +1,5 @@
 name: Application CI
 
-# Run automatically whenever application code is pushed to main.
 on:
   push:
     branches:
@@ -10,26 +9,49 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+  id-token: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-      # Download the application repository onto the temporary runner.
+      # Download application source onto the GitHub runner.
       - name: Checkout repository
         uses: actions/checkout@v4
-      
-      - name: Show repository identity
-        run: |
-          echo "Repository: ${{ github.repository }}"
-          echo "Repository ID: ${{ github.repository_id }}"
-          echo "Owner ID: ${{ github.repository_owner_id }}"
-          echo "Ref: ${{ github.ref }}"
-      
-      # Build the application exactly as our EC2s currently do.
+
+      # Make sure Docker Compose is valid.
+      - name: Validate Docker Compose
+        run: docker compose config
+
+      # Build the application image.
       - name: Build Docker application
         run: docker compose build
 
-      # Validate the Docker Compose configuration.
-      - name: Validate Docker Compose
-        run: docker compose config
+      # Authenticate this GitHub workflow to AWS using OIDC.
+      # No permanent AWS credentials are stored in GitHub.
+      - name: Configure AWS credentials
+        if: github.event_name == 'push'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::682047236370:role/cloud-residency-github-app
+          aws-region: eu-north-1
+
+      # Authenticate Docker to our private ECR registry.
+      - name: Login to Amazon ECR
+        if: github.event_name == 'push'
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # Tag the image using the Git commit SHA and push it to ECR.
+      - name: Push image to ECR
+        if: github.event_name == 'push'
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: cloud-residency
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker tag flask-lab:latest $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
