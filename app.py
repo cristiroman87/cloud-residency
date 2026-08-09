@@ -117,7 +117,7 @@ def dashboard():
         <div class="card"><div class="label">Last Refresh</div><div class="value">{escape(str(system.get('timestamp', 'unknown')))}</div></div>
         <div class="card wide"><div class="label">Memory</div><pre>{escape(str(system.get('memory', 'unknown')))}</pre></div>
         <div class="card wide"><div class="label">Disk</div><pre>{escape(str(system.get('disk', 'unknown')))}</pre></div>
-        <div class="card wide"><div class="label">Internet Data</div><div class="value">{escape(str(internet.get('github_zen', 'unknown')))}</div></div>
+        <div class="card wide"><div class="label">Internet Old Saying</div><div class="value">{escape(str(internet.get('github_zen', 'unknown')))}</div></div>
     </div>
     '''
     return page_shell('Dashboard', 'dashboard', body)

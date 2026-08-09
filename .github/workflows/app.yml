@@ -18,22 +18,45 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      ##########################################################
+      # Checkout application source code
+      ##########################################################
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Compose now expects APP_IMAGE to be supplied externally.
-      # For validation we can use a temporary local image name.
+
+      ##########################################################
+      # Validate Docker Compose
+      #
+      # Compose expects APP_IMAGE to be supplied externally.
+      # CI uses a temporary local image name for validation.
+      ##########################################################
+
       - name: Validate Docker Compose
         env:
           APP_IMAGE: flask-lab:latest
         run: docker compose config
 
-      # CI builds the application image directly.
+
+      ##########################################################
+      # Build application image
+      #
+      # This happens on the GitHub Actions runner.
+      # Nothing has changed in AWS yet.
+      ##########################################################
+
       - name: Build Docker application
         run: docker build -t flask-lab:latest .
 
-      # Only pushes to main publish an image.
+
+      ##########################################################
+      # Authenticate GitHub Actions to AWS
+      #
+      # Only pushes to main deploy.
       # Pull requests stop after validation/build.
+      ##########################################################
+
       - name: Configure AWS credentials
         if: github.event_name == 'push'
         uses: aws-actions/configure-aws-credentials@v4
@@ -41,10 +64,42 @@ jobs:
           role-to-assume: arn:aws:iam::682047236370:role/cloud-residency-github-app
           aws-region: eu-north-1
 
+
+      ##########################################################
+      # Remember current production version
+      #
+      # We save this before changing SSM so that we know the
+      # previous known deployment version for future rollback.
+      ##########################################################
+
+      - name: Read current production version
+        if: github.event_name == 'push'
+        run: |
+          OLD_VERSION=$(aws ssm get-parameter \
+            --name "/cloud-residency/app-image-tag" \
+            --query "Parameter.Value" \
+            --output text \
+            --region eu-north-1)
+
+          echo "OLD_VERSION=$OLD_VERSION" >> "$GITHUB_ENV"
+          echo "Current production version: $OLD_VERSION"
+
+
+      ##########################################################
+      # Authenticate Docker to Amazon ECR
+      ##########################################################
+
       - name: Login to Amazon ECR
         if: github.event_name == 'push'
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
+
+
+      ##########################################################
+      # Publish new immutable application image
+      #
+      # The Git commit SHA becomes the Docker image tag.
+      ##########################################################
 
       - name: Push image to ECR
         if: github.event_name == 'push'
@@ -56,8 +111,13 @@ jobs:
           docker tag flask-lab:latest $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
 
-      # Only move the production pointer AFTER the image
-      # was successfully pushed to ECR.
+
+      ##########################################################
+      # Change desired production version
+      #
+      # Only change SSM AFTER the new image exists in ECR.
+      ##########################################################
+
       - name: Update production image version
         if: github.event_name == 'push'
         run: |
@@ -67,3 +127,65 @@ jobs:
             --value "${{ github.sha }}" \
             --overwrite \
             --region eu-north-1
+
+
+      ##########################################################
+      # Start rolling deployment
+      #
+      # The ASG's Terraform-managed Instance Refresh policy
+      # determines how replacement is performed.
+      ##########################################################
+
+      - name: Start rolling deployment
+        if: github.event_name == 'push'
+        run: |
+          REFRESH_ID=$(aws autoscaling start-instance-refresh \
+            --auto-scaling-group-name cloud-residency-asg \
+            --query "InstanceRefreshId" \
+            --output text)
+
+          echo "REFRESH_ID=$REFRESH_ID" >> "$GITHUB_ENV"
+          echo "Started Instance Refresh: $REFRESH_ID"
+
+
+      ##########################################################
+      # Wait for rolling deployment
+      #
+      # Poll the exact Instance Refresh every 30 seconds.
+      # Maximum wait: approximately 10 minutes.
+      ##########################################################
+
+      - name: Wait for rolling deployment
+        if: github.event_name == 'push'
+        run: |
+          for i in {1..20}; do
+
+            STATUS=$(aws autoscaling describe-instance-refreshes \
+              --auto-scaling-group-name cloud-residency-asg \
+              --instance-refresh-ids "$REFRESH_ID" \
+              --query "InstanceRefreshes[0].Status" \
+              --output text)
+
+            echo "Check $i/20 - Instance Refresh status: $STATUS"
+
+            if [ "$STATUS" = "Successful" ]; then
+              echo "Deployment successful"
+              exit 0
+            fi
+
+            if [ "$STATUS" = "Failed" ]; then
+              echo "Deployment failed"
+              exit 1
+            fi
+
+            if [ "$STATUS" = "Cancelled" ]; then
+              echo "Deployment cancelled"
+              exit 1
+            fi
+
+            sleep 30
+
+          done
+
+          echo "Deployment timed out after approximately 10 minutes"
+          exit 1
