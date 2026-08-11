@@ -6,7 +6,7 @@ from html import escape
 from string import Template
 
 import requests
-from flask import Flask, request
+from flask import Flask, request , Response
 
 app = Flask(__name__)
 
@@ -27,6 +27,95 @@ def safe_get_json(url: str, timeout: int = 5) -> dict:
         return {'value': data, '_http_status': response.status_code}
     except Exception as exc:
         return {'error': str(exc)}
+
+############################################################
+# Internal App3 proxy
+#
+# The browser should only communicate with the public App1
+# endpoint through the ALB.
+#
+# App1 forwards authentication requests to App3 over Docker's
+# internal network:
+#
+# Browser -> ALB -> App1 -> App3 -> RDS
+#
+# Cookies are forwarded in both directions so Flask sessions
+# continue to work through the proxy.
+############################################################
+
+def proxy_to_app3(path: str):
+    target_url = f"{APP3_URL}{path}"
+
+    # Forward the browser's relevant request headers to App3.
+    headers = {}
+
+    if request.headers.get("Content-Type"):
+        headers["Content-Type"] = request.headers["Content-Type"]
+
+    if request.headers.get("Cookie"):
+        headers["Cookie"] = request.headers["Cookie"]
+
+    try:
+        upstream = requests.request(
+            method=request.method,
+            url=target_url,
+            headers=headers,
+            data=request.get_data(),
+            timeout=5,
+        )
+
+    except requests.RequestException as exc:
+        return {
+            "error": "app3_unavailable",
+            "detail": str(exc),
+        }, 502
+
+    # Return App3's response to the browser.
+    response = Response(
+        upstream.content,
+        status=upstream.status_code,
+        content_type=upstream.headers.get(
+            "Content-Type",
+            "application/json",
+        ),
+    )
+
+    # App3 creates the Flask session cookie during login.
+    # Forward that Set-Cookie header back to the browser.
+    if "Set-Cookie" in upstream.headers:
+        response.headers["Set-Cookie"] = upstream.headers["Set-Cookie"]
+
+    return response
+###########################################################
+# App3 authentication proxy routes
+#
+# These routes give the browser one public API surface.
+# App3 itself remains an internal Docker service.
+############################################################
+
+@app.post("/api/signup")
+def proxy_signup():
+    return proxy_to_app3("/api/signup")
+
+
+@app.post("/api/login")
+def proxy_login():
+    return proxy_to_app3("/api/login")
+
+
+@app.post("/api/logout")
+def proxy_logout():
+    return proxy_to_app3("/api/logout")
+
+
+@app.get("/api/me")
+def proxy_me():
+    return proxy_to_app3("/api/me")
+
+
+@app.get("/api/admin")
+def proxy_admin():
+    return proxy_to_app3("/api/admin")
 
 
 def page_shell(title: str, active: str, body: str) -> str:
@@ -222,9 +311,7 @@ def identity():
             ''')
     file_rows_html = '\n'.join(file_rows)
 
-    browser_host = request.host.split(':')[0] if request.host else '127.0.0.1'
-    app3_browser_url = f'http://{browser_host}:5002'
-
+    
     status_json = {
         'current_user': me.get('user', {}).get('username', 'not logged in') if me.get('ok') else 'not logged in',
         'me': me,
@@ -273,7 +360,9 @@ def identity():
     </div>
 
     <script>
-        const APP3 = $app3_browser_url;
+        // The browser now talks only to App1.
+        // App1 proxies /api/* requests internally to App3.
+        const APP3 = "";
 
         function setStatus(text) {
             document.getElementById("auth_status").textContent = text;
@@ -349,9 +438,8 @@ def identity():
         env_shell=escape(str(env.get('SHELL', ''))),
         env_path=escape(str(env.get('PATH', ''))),
         env_venv=escape(str(env.get('VIRTUAL_ENV', ''))),
-        file_rows=file_rows_html,
-        app3_browser_url=json.dumps(app3_browser_url),
-    )
+        file_rows=file_rows_html
+            )
 
     return page_shell('Identity', 'identity', body)
 

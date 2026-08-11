@@ -32,13 +32,22 @@ services:
   app3:
     image: ${APP_IMAGE}
     command: ["python3", "app3.py"]
-    ports:
-      - "5002:5002"
+
+  # App3 is intentionally NOT exposed on the EC2 host.
+  #
+  # App1 reaches App3 through Docker's internal network using:
+  #
+  # http://app3:5002
+  #
+  # The browser only communicates with App1 through the ALB.
+
     environment:
       SECRET_KEY: dev-change-me-now
-      APP3_DB: /app/data/app3.db
-    volumes:
-      - ./data:/app/data
+      DB_HOST: ${DB_HOST}
+      DB_PORT: "5432"
+      DB_NAME: cloudresidency
+      DB_SECRET_ARN: ${DB_SECRET_ARN}
+
     logging:
       driver: awslogs
       options:
