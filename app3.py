@@ -54,7 +54,10 @@ DB_SECRET_ARN = os.environ["DB_SECRET_ARN"]
 # ============================================================
 
 def get_db():
-    client = boto3.client("secretsmanager")
+    client = boto3.client(
+    "secretsmanager",
+    region_name="eu-north-1",
+)
 
     response = client.get_secret_value(
         SecretId=DB_SECRET_ARN
