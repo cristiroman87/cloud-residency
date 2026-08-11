@@ -158,7 +158,7 @@ jobs:
       - name: Wait for rolling deployment
         if: github.event_name == 'push'
         run: |
-          for i in {1..20}; do
+          for i in {1..40}; do
 
             STATUS=$(aws autoscaling describe-instance-refreshes \
               --auto-scaling-group-name cloud-residency-asg \
@@ -166,7 +166,7 @@ jobs:
               --query "InstanceRefreshes[0].Status" \
               --output text)
 
-            echo "Check $i/20 - Instance Refresh status: $STATUS"
+            echo "Check $i/40 - Instance Refresh status: $STATUS"
 
             if [ "$STATUS" = "Successful" ]; then
               echo "Deployment successful"
@@ -187,5 +187,5 @@ jobs:
 
           done
 
-          echo "Deployment timed out after approximately 10 minutes"
+          echo "Deployment timed out after approximately 20 minutes"
           exit 1
