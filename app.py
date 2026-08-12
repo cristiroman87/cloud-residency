@@ -473,18 +473,37 @@ App1 (:5000)
     '''
     return page_shell('Architecture', 'architecture', body)
 
+def check(name: str, url: str) -> dict:
+    try:
+        r = requests.get(url, timeout=4)
+
+        if r.status_code == 200:
+            return {
+                'name': name,
+                'ok': True,
+                'text': 'ACTIVE (running)',
+                'detail': f'HTTP {r.status_code}',
+            }
+
+        return {
+            'name': name,
+            'ok': False,
+            'text': 'DOWN',
+            'detail': f'HTTP {r.status_code}',
+        }
+
+    except Exception as exc:
+        return {
+            'name': name,
+            'ok': False,
+            'text': 'DOWN',
+            'detail': str(exc),
+        }
+
 
 @app.get('/health')
 def health():
-    def check(name: str, url: str) -> dict:
-        try:
-            r = requests.get(url, timeout=4)
-            if r.status_code == 200:
-                return {'name': name, 'ok': True, 'text': 'ACTIVE (running)', 'detail': f'HTTP {r.status_code}'}
-            return {'name': name, 'ok': False, 'text': 'DOWN', 'detail': f'HTTP {r.status_code}'}
-        except Exception as exc:
-            return {'name': name, 'ok': False, 'text': 'DOWN', 'detail': str(exc)}
-
+    
     app2 = check('App 2', f'{APP2_URL}/api/health')
     app3 = check('App 3', f'{APP3_URL}/api/health')
 
@@ -502,6 +521,24 @@ def health():
     '''
     return page_shell('Health', 'health', body)
 
+@app.get('/ready')
+def ready():
+
+    app2 = check('App 2', f'{APP2_URL}/api/health')
+    app3 = check('App 3', f'{APP3_URL}/api/ready')
+
+    if app2['ok'] and app3['ok']:
+        return {
+            'ok': True,
+            'app2': 'ready',
+            'app3': 'ready',
+        }, 200
+
+    return {
+        'ok': False,
+        'app2': 'ready' if app2['ok'] else 'unavailable',
+        'app3': 'ready' if app3['ok'] else 'unavailable',
+    }, 503
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
