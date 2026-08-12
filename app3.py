@@ -476,6 +476,48 @@ def health():
         }
     )
 
+############################################################
+# Readiness check
+#
+# /api/health answers:
+# "Is the App3 Flask process alive?"
+#
+# /api/ready answers:
+# "Can App3 actually connect to and query PostgreSQL?"
+#
+# SELECT 1 is deliberately tiny. We don't care about
+# application data here; we only want to prove that the
+# database dependency is usable.
+############################################################
+
+@app.get("/api/ready")
+def ready():
+    try:
+        conn = get_db()
+
+        conn.execute(
+            "SELECT 1"
+        ).fetchone()
+
+        conn.close()
+
+        return jsonify(
+            {
+                "ok": True,
+                "service": "app3",
+                "database": "ready",
+            }
+        ), 200
+
+    except Exception as exc:
+        return jsonify(
+            {
+                "ok": False,
+                "service": "app3",
+                "database": "unavailable",
+                "error": str(exc),
+            }
+        ), 503 	
 
 # ============================================================
 # Application entry point
